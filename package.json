@@ -1,0 +1,174 @@
+{
+  "name": "translate-hover",
+  "displayName": "Translate Hover",
+  "description": "Select text in any file and get a Google Translate popup right in the editor.",
+  "version": "0.0.1",
+  "publisher": "haint",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "translateHover.translateSelection",
+        "title": "Translate: Translate Selection",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "translateHover.pickTargetLanguage",
+        "title": "Translate: Change Target Language"
+      },
+      {
+        "command": "translateHover.pickSourceLanguage",
+        "title": "Translate: Change Source Language"
+      },
+      {
+        "command": "translateHover.swapLanguages",
+        "title": "Translate: Swap Source / Target Language"
+      },
+      {
+        "command": "translateHover.copyLastResult",
+        "title": "Translate: Copy Last Translation"
+      },
+      {
+        "command": "translateHover.replaceSelection",
+        "title": "Translate: Replace Selection With Translation"
+      },
+      {
+        "command": "translateHover.speak",
+        "title": "Translate: Speak Text"
+      },
+      {
+        "command": "translateHover.openInBrowser",
+        "title": "Translate: Open In Google Translate"
+      },
+      {
+        "command": "translateHover.openSettings",
+        "title": "Translate: Extension Options"
+      },
+      {
+        "command": "translateHover.clearCache",
+        "title": "Translate: Clear Cache"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "translateHover.translateSelection",
+        "key": "ctrl+alt+t",
+        "mac": "cmd+alt+t",
+        "when": "editorHasSelection"
+      },
+      {
+        "command": "translateHover.replaceSelection",
+        "key": "ctrl+alt+shift+t",
+        "mac": "cmd+alt+shift+t",
+        "when": "editorHasSelection && !editorReadonly"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "translateHover.translateSelection",
+          "when": "editorHasSelection",
+          "group": "1_modification@10"
+        },
+        {
+          "command": "translateHover.replaceSelection",
+          "when": "editorHasSelection && !editorReadonly",
+          "group": "1_modification@11"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Translate Hover",
+      "properties": {
+        "translateHover.targetLanguage": {
+          "type": "string",
+          "default": "vi",
+          "description": "Target language code (e.g. vi, en, ja, zh-CN)."
+        },
+        "translateHover.sourceLanguage": {
+          "type": "string",
+          "default": "auto",
+          "description": "Source language code, or 'auto' to detect."
+        },
+        "translateHover.quickLanguages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "vi",
+            "en",
+            "ja",
+            "zh-CN"
+          ],
+          "description": "Language codes shown as one-click shortcuts inside the popup. Set to [] to hide the row."
+        },
+        "translateHover.showIconOnSelect": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a small translate icon right after the selected text."
+        },
+        "translateHover.autoShowPopup": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically open the translation popup as soon as text is selected (no hover needed)."
+        },
+        "translateHover.autoShowDelay": {
+          "type": "number",
+          "default": 350,
+          "description": "Delay in ms before reacting to a selection change."
+        },
+        "translateHover.hoverOnWord": {
+          "type": "boolean",
+          "default": false,
+          "description": "Also translate the word under the cursor when nothing is selected."
+        },
+        "translateHover.maxLength": {
+          "type": "number",
+          "default": 2000,
+          "description": "Maximum number of characters sent to the translation engine."
+        },
+        "translateHover.stripCommentMarkers": {
+          "type": "boolean",
+          "default": true,
+          "description": "Strip //, /*, *, # and leading indentation from the selected text before translating."
+        },
+        "translateHover.showStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the current language pair in the status bar."
+        },
+        "translateHover.apiKey": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Optional Google Cloud Translation API key. When empty the free (unofficial) `translate.googleapis.com` endpoint is used."
+        },
+        "translateHover.proxy": {
+          "type": "string",
+          "default": "",
+          "description": "Optional host to use instead of clients5.google.com (e.g. a mirror)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.0"
+  }
+}
