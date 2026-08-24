@@ -4,3 +4,6 @@ src/**
 **/*.ts
 tsconfig.json
 .gitignore
+pnpm-lock.yaml
+package-lock.json
+.vscodeignore

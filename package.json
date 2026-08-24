@@ -5,6 +5,15 @@
   "version": "0.0.1",
   "publisher": "haint",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/i95-nth/vscode-translate-ext.git"
+  },
+  "bugs": {
+    "url": "https://github.com/i95-nth/vscode-translate-ext/issues"
+  },
+  "homepage": "https://github.com/i95-nth/vscode-translate-ext#readme",
+  "packageManager": "pnpm@11.23.0",
   "engines": {
     "vscode": "^1.85.0"
   },
