@@ -2,7 +2,7 @@
   "name": "translate-hover",
   "displayName": "Translate Hover",
   "description": "Select text in any file and get a Google Translate popup right in the editor.",
-  "version": "0.0.8",
+  "version": "0.0.15",
   "publisher": "haint",
   "license": "MIT",
   "repository": {
@@ -136,6 +136,11 @@
           "default": true,
           "description": "Show a small translate icon right after the selected text."
         },
+        "translateHover.manualSelectionOnly": {
+          "type": "boolean",
+          "default": true,
+          "description": "Only show the 🌐 marker for selections made with the mouse or the keyboard. Selections a command produced — stepping through Find matches, Select All, Expand Selection — leave no marker. The Translate Selection command and its keybinding still work on any selection."
+        },
         "translateHover.confirmBeforeTranslate": {
           "type": "boolean",
           "default": true,
@@ -175,6 +180,11 @@
           ],
           "default": "all",
           "description": "How line breaks in the selected text are handled."
+        },
+        "translateHover.renderMarkdown": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Render Markdown tables in the popup as tables. Only blocks that Markdown would accept as a table — consecutive `|` rows carrying a `| --- |` divider — are treated this way; every other line keeps its own line break as before."
         },
         "translateHover.stripCommentMarkers": {
           "type": "boolean",

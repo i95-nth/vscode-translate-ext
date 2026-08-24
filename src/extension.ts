@@ -5,6 +5,7 @@ import { clearCache, isCached, translate, ttsUrl, webUrl } from './translate';
 const SECTION = 'translateHover';
 
 let iconDecoration: vscode.TextEditorDecorationType;
+let loadingDecoration: vscode.TextEditorDecorationType;
 let statusBar: vscode.StatusBarItem;
 let selectionTimer: NodeJS.Timeout | undefined;
 let lastResult: { source: string; translated: string; from: string; to: string } | undefined;
@@ -19,6 +20,21 @@ let secrets: vscode.SecretStorage | undefined;
  * what that click approved.
  */
 let armed: string | undefined;
+
+/**
+ * Text whose translation is in flight. The hover widget has no loading state of
+ * its own, so the popup is shown twice: once carrying a spinner while this is
+ * set, then again with the result.
+ */
+let pending: string | undefined;
+
+/**
+ * How long the spinner stays up once it has appeared. A fast answer would
+ * otherwise replace it within a frame or two, which reads as a flicker rather
+ * than as progress — so a short request waits out the remainder, and a slow one
+ * is never held back.
+ */
+const MIN_SPINNER_MS = 200;
 
 /**
  * The key lives in the OS keychain, not in settings.json: a plain setting is
@@ -38,6 +54,21 @@ export function activate(context: vscode.ExtensionContext): void {
         after: {
             contentText: ' 🌐',
             margin: '0 0 0 0.25em',
+            fontStyle: 'normal',
+            // An attachment has no `cursor` of its own, but textDecoration is
+            // passed through as raw CSS, so the pointer rides along with it.
+            textDecoration: 'none; cursor: pointer'
+        },
+        cursor: 'pointer',
+        rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
+    });
+
+    // Shown in the marker's place while the request is out. The status bar
+    // progress is easy to miss — this sits where the click just happened.
+    loadingDecoration = vscode.window.createTextEditorDecorationType({
+        after: {
+            contentText: ' ⏳',
+            margin: '0 0 0 0.25em',
             fontStyle: 'normal'
         },
         rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
@@ -51,10 +82,20 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         output,
         iconDecoration,
+        loadingDecoration,
         statusBar,
         vscode.languages.registerHoverProvider({ scheme: '*', language: '*' }, { provideHover }),
         vscode.window.onDidChangeTextEditorSelection(onSelectionChange),
-        vscode.window.onDidChangeActiveTextEditor(() => scheduleDecoration()),
+        vscode.window.onDidChangeActiveTextEditor(() => {
+            // Only the active editor is ever re-rendered, so the one just left
+            // has to be cleaned up here or its marker stays for good.
+            for (const other of vscode.window.visibleTextEditors) {
+                if (other !== vscode.window.activeTextEditor) {
+                    clearMarkers(other);
+                }
+            }
+            scheduleDecoration();
+        }),
         vscode.workspace.onDidChangeConfiguration(e => {
             if (e.affectsConfiguration(SECTION)) {
                 updateStatusBar();
@@ -172,8 +213,37 @@ function updateStatusBar(): void {
 
 /* ------------------------------------------------------------ decoration */
 
+/**
+ * The selection the user last made by hand, per document.
+ *
+ * Stepping through Find matches re-selects on every hit, which would plant a
+ * marker on each one. The event carries what caused it, so a selection is
+ * recorded here only when it came from the mouse or the keyboard, and the
+ * marker is drawn only while the current selection is still that one.
+ *
+ * Comparing selections rather than suppressing events is what keeps the popup
+ * working: showPopup nudges the selection off and back programmatically, and
+ * the restored range matches the recorded one again.
+ */
+const gestures = new Map<string, string>();
+
 function onSelectionChange(e: vscode.TextEditorSelectionChangeEvent): void {
+    const byHand =
+        e.kind === vscode.TextEditorSelectionChangeKind.Mouse ||
+        e.kind === vscode.TextEditorSelectionChangeKind.Keyboard;
+    if (byHand) {
+        gestures.set(e.textEditor.document.uri.toString(), selectionKey(e.textEditor));
+    }
     scheduleDecoration(e.textEditor);
+}
+
+function selectionKey(editor: vscode.TextEditor): string {
+    const { start, end } = editor.selection;
+    return `${start.line},${start.character},${end.line},${end.character}`;
+}
+
+function madeByHand(editor: vscode.TextEditor): boolean {
+    return gestures.get(editor.document.uri.toString()) === selectionKey(editor);
 }
 
 function scheduleDecoration(editor = vscode.window.activeTextEditor): void {
@@ -189,6 +259,9 @@ function scheduleDecoration(editor = vscode.window.activeTextEditor): void {
 
 function renderDecoration(editor: vscode.TextEditor): void {
     if (editor !== vscode.window.activeTextEditor) {
+        // Returning without clearing would strand the marker here, and with it
+        // a gate still offering a selection this editor may no longer have.
+        clearMarkers(editor);
         return;
     }
     const cfg = config();
@@ -197,6 +270,11 @@ function renderDecoration(editor: vscode.TextEditor): void {
 
     if (!cfg.get<boolean>('showIconOnSelect', true) || !text) {
         editor.setDecorations(iconDecoration, []);
+        return;
+    }
+
+    if (cfg.get<boolean>('manualSelectionOnly', true) && !madeByHand(editor)) {
+        clearMarkers(editor);
         return;
     }
 
@@ -216,6 +294,11 @@ function renderDecoration(editor: vscode.TextEditor): void {
     if (auto) {
         void vscode.commands.executeCommand('editor.action.showHover');
     }
+}
+
+function clearMarkers(editor: vscode.TextEditor): void {
+    editor.setDecorations(iconDecoration, []);
+    editor.setDecorations(loadingDecoration, []);
 }
 
 /** True while translating this text would cost a request the user has not asked for. */
@@ -263,6 +346,23 @@ function gate(text: string, editor: vscode.TextEditor): vscode.MarkdownString {
 
 /* ----------------------------------------------------------------- hover */
 
+/** The placeholder shown in the popup's place while the request is out. */
+function buildSpinner(text: string, from: string, to: string): vscode.MarkdownString {
+    const md = new vscode.MarkdownString();
+    md.supportThemeIcons = true;
+
+    const configured = config().get<string>('sourceLanguage', 'auto')!;
+    const label = configured === 'auto' ? 'Detecting…' : languageName(from);
+    const count = text.length === 1 ? '1 character' : `${text.length} characters`;
+
+    md.appendMarkdown(
+        `$(globe) ${escapeMd(label)} $(arrow-right) **${escapeMd(languageName(to))}**\n\n` +
+            `---\n\n` +
+            `$(loading~spin) &nbsp; Translating ${count}…`
+    );
+    return md;
+}
+
 /** Collapses a range onto its end, where the 🌐 marker sits. */
 function atMarker(range: vscode.Range): vscode.Range {
     return new vscode.Range(range.end, range.end);
@@ -306,6 +406,10 @@ async function provideHover(
 
     const from = cfg.get<string>('sourceLanguage', 'auto')!;
     const to = cfg.get<string>('targetLanguage', 'vi')!;
+
+    if (pending === text) {
+        return new vscode.Hover(buildSpinner(text, from, to), atMarker(range));
+    }
 
     output.appendLine(`[hover] ${from} -> ${to} :: ${text.slice(0, 60)}`);
 
@@ -406,11 +510,76 @@ function buildPopup(source: string, translated: string, from: string, to: string
  */
 function section(actions: string[], text: string, bold: boolean): string {
     const toolbar = actions.join('&nbsp;&nbsp;&nbsp;');
-    const body = text
-        .split('\n')
-        .map(line => (line === '' ? '&nbsp;' : bold ? `**${escapeMd(line)}**` : escapeMd(line)))
-        .join('<br>');
-    return `${toolbar}<br>${body}\n\n`;
+    const chunks = chunkLines(text, config().get<boolean>('renderMarkdown', true));
+
+    const parts = chunks.map(part =>
+        part.table
+            ? // Rows join with real newlines because a <br> is not a row break,
+              // and no emphasis is applied because it would swallow the pipes.
+              part.lines.map(escapeMdInline).join('\n')
+            : part.lines
+                  .map(line => (line === '' ? '&nbsp;' : bold ? `**${escapeMd(line)}**` : escapeMd(line)))
+                  .join('<br>')
+    );
+
+    // A table has to begin a block of its own; prose stays tight to the toolbar.
+    const gap = chunks[0]?.table ? '\n\n' : '<br>';
+    return `${toolbar}${gap}${parts.join('\n\n')}\n\n`;
+}
+
+/** A run of lines that all render the same way. */
+interface Chunk {
+    table: boolean;
+    lines: string[];
+}
+
+/**
+ * Splits the text into table blocks and everything else.
+ *
+ * The two cannot share a joiner: Markdown reads a single newline as a space, so
+ * prose joined that way loses the line breaks the translation just preserved,
+ * while a table joined with `<br>` never becomes a table at all. Detecting per
+ * block rather than per selection means a document holding both still renders
+ * both correctly.
+ */
+function chunkLines(text: string, allowTables: boolean): Chunk[] {
+    const chunks: Chunk[] = [];
+
+    for (const line of text.split('\n')) {
+        const table = allowTables && isTableRow(line);
+        const last = chunks[chunks.length - 1];
+        if (last && last.table === table) {
+            last.lines.push(line);
+        } else {
+            chunks.push({ table, lines: [line] });
+        }
+    }
+
+    // Pipes alone are not a table — Markdown needs the `| --- |` divider too.
+    // Without one the rows would silently collapse into a single paragraph.
+    for (const part of chunks) {
+        if (part.table && !(part.lines.length >= 2 && part.lines.some(isTableDivider))) {
+            part.table = false;
+        }
+    }
+
+    return chunks.reduce<Chunk[]>((merged, part) => {
+        const last = merged[merged.length - 1];
+        if (last && last.table === part.table) {
+            last.lines.push(...part.lines);
+        } else {
+            merged.push(part);
+        }
+        return merged;
+    }, []);
+}
+
+function isTableRow(line: string): boolean {
+    return /^\s*\|.*\|\s*$/.test(line);
+}
+
+function isTableDivider(line: string): boolean {
+    return /^\s*\|[\s:|-]*-[\s:|-]*\|\s*$/.test(line);
 }
 
 /** One-click shortcuts to the languages the user switches between most. */
@@ -431,20 +600,31 @@ function quickLanguageRow(current: string, link: (c: string, a: unknown[]) => st
 /* -------------------------------------------------------------- commands */
 
 async function translateSelectionCommand(anchor?: Anchor): Promise<void> {
-    const editor = vscode.window.activeTextEditor;
+    const editor = await editorFor(anchor);
     if (!editor) {
         return;
     }
 
     // Put back what the click dropped. Active goes to the end so the cursor —
     // and therefore the popup — lands on the marker rather than above the text.
-    if (anchor && editor.document.uri.toString() === anchor.uri) {
+    if (anchor) {
         const [startLine, startChar, endLine, endChar] = anchor.range;
-        editor.selection = new vscode.Selection(startLine, startChar, endLine, endChar);
+        // The document may have been edited since the gate was drawn; clamping
+        // keeps a now-out-of-bounds range from throwing.
+        const range = editor.document.validateRange(
+            new vscode.Range(startLine, startChar, endLine, endChar)
+        );
+        if (!range.isEmpty) {
+            editor.selection = new vscode.Selection(range.start, range.end);
+        }
     }
 
     if (editor.selection.isEmpty) {
-        vscode.window.showInformationMessage('Translate Hover: select some text first.');
+        vscode.window.showInformationMessage(
+            anchor
+                ? 'Translate Hover: that selection is no longer there — select the text again.'
+                : 'Translate Hover: select some text first.'
+        );
         return;
     }
 
@@ -567,6 +747,28 @@ async function pickLanguage(key: 'targetLanguage' | 'sourceLanguage', code?: str
     await reopenPopup();
 }
 
+/**
+ * The editor a gate click belongs to.
+ *
+ * Clicking a link in a hover does not necessarily focus the editor underneath
+ * it, so the active one can be a different document entirely — and the anchor
+ * already names the document it was drawn for. Resolving through it, and
+ * focusing that editor, also lets reopenPopup read the same one back out of
+ * activeTextEditor.
+ */
+async function editorFor(anchor?: Anchor): Promise<vscode.TextEditor | undefined> {
+    if (!anchor) {
+        return vscode.window.activeTextEditor;
+    }
+    const match = vscode.window.visibleTextEditors.find(
+        candidate => candidate.document.uri.toString() === anchor.uri
+    );
+    if (!match) {
+        return vscode.window.activeTextEditor;
+    }
+    return vscode.window.showTextDocument(match.document, match.viewColumn, false);
+}
+
 /** Language codes the user picked recently, most recent first. */
 function recentLanguages(key: string): string[] {
     return state?.get<string[]>(`recent.${key}`, []) ?? [];
@@ -598,18 +800,56 @@ async function reopenPopup(): Promise<void> {
 
     await vscode.window.showTextDocument(editor.document, editor.viewColumn, false);
 
-    // Fetch the new pair up front so the reopened popup paints the fresh
-    // translation immediately instead of flashing a spinner: provideHover
-    // then reads it straight out of the cache.
-    await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Window, title: 'Translating…' },
-        () => prefetch(editor)
+    const cfg = config();
+    const text = readSelection(editor);
+    const warm =
+        !text ||
+        isCached({
+            text,
+            from: cfg.get<string>('sourceLanguage', 'auto')!,
+            to: cfg.get<string>('targetLanguage', 'vi')!
+        });
+
+    // Nothing to wait for when the answer is already held: go straight to it
+    // rather than flashing a spinner nobody needed.
+    let shownAt: number | undefined;
+    if (!warm) {
+        pending = text;
+        await showPopup(editor);
+        // Timed from here, not from the click: showPopup itself takes a moment,
+        // and what matters is how long the spinner is actually on screen.
+        shownAt = Date.now();
+    }
+
+    // Fetch up front so the popup below paints the finished translation
+    // instead of asking provideHover to wait with the widget already open.
+    pending = undefined;
+    await whileLoading(editor, () =>
+        vscode.window.withProgress(
+            { location: vscode.ProgressLocation.Window, title: 'Translating…' },
+            () => prefetch(editor)
+        )
     );
 
-    // Re-showing a hover at the position it was just dismissed at hands back
-    // the result computed for the previous language pair. Dropping it and
-    // moving the cursor off the spot and back invalidates that — the same
-    // thing the user was doing by hand when reselecting the text.
+    if (shownAt !== undefined) {
+        const remaining = MIN_SPINNER_MS - (Date.now() - shownAt);
+        if (remaining > 0) {
+            await delay(remaining);
+        }
+    }
+
+    await showPopup(editor);
+}
+
+/**
+ * Puts the hover back up.
+ *
+ * Re-showing a hover at the position it was just dismissed at hands back
+ * whatever was computed there before — the previous language pair, or the
+ * spinner. Dropping it and moving the cursor off the spot and back invalidates
+ * that, the same thing the user was doing by hand when reselecting the text.
+ */
+async function showPopup(editor: vscode.TextEditor): Promise<void> {
     await vscode.commands.executeCommand('editor.action.hideHover');
 
     const selection = editor.selection;
@@ -626,6 +866,20 @@ async function reopenPopup(): Promise<void> {
 
     renderDecoration(editor);
     await vscode.commands.executeCommand('editor.action.showHover');
+}
+
+/** Swaps the marker for an hourglass until the work settles. */
+async function whileLoading<T>(editor: vscode.TextEditor, work: () => Thenable<T>): Promise<T> {
+    const range = new vscode.Range(editor.selection.end, editor.selection.end);
+    editor.setDecorations(iconDecoration, []);
+    editor.setDecorations(loadingDecoration, [range]);
+    try {
+        return await work();
+    } finally {
+        // renderDecoration puts the marker back; this only clears the hourglass,
+        // and it has to run even when the request failed.
+        editor.setDecorations(loadingDecoration, []);
+    }
 }
 
 /** Warms the cache for the current selection and language pair. */
@@ -716,4 +970,19 @@ function prepare(raw: string, cfg: vscode.WorkspaceConfiguration): string {
 
 function escapeMd(text: string): string {
     return text.replace(/[\\`*_{}[\]()#+\-.!|<>]/g, m => `\\${m}`);
+}
+
+/**
+ * Escape for text that is allowed to render as Markdown.
+ *
+ * The popup is a trusted MarkdownString, where a `command:` link runs the
+ * command when clicked — so text taken out of whatever file happens to be open
+ * must not be able to build one. Only the characters that form a link or raw
+ * HTML are escaped: `[` and `]` break `[label](command:…)` and its reference
+ * form, `<` and `>` break `<a href="command:…">`. Nothing else in Markdown
+ * reaches a command, and GFM autolinking only ever matches http, ftp and
+ * mailto, so `|`, `-`, `#`, `*`, `_` and backticks are left to do their job.
+ */
+function escapeMdInline(text: string): string {
+    return text.replace(/[[\]<>]/g, m => `\\${m}`);
 }

@@ -9,6 +9,17 @@ extension in Chrome.
 Nothing to configure. Select a piece of text and a 🌐 marker appears after it.
 Hover that marker and click **Translate** — the popup opens with the result.
 
+While the request is out the popup opens straight away with a spinner, the
+marker turns into ⏳, and a `Translating…` indicator appears in the status bar.
+The spinner always stays up for a moment even when the answer arrives sooner,
+so it reads as progress rather than as a flicker. Text already translated in
+this session skips all of that and opens complete.
+
+The marker only follows selections you made with the mouse or the keyboard.
+Stepping through Find matches re-selects on every hit, and marking each one
+would be noise — those selections are left alone. `Cmd+Alt+T` still translates
+whatever is selected, however it got selected.
+
 Translation is deliberate by design: hovering the selection never sends
 anything on its own, so a stray mouse movement cannot spend quota. The marker
 tells you how much it will cost before you commit, and text already translated
@@ -78,11 +89,13 @@ Everything lives under `translateHover.*`.
 | `sourceLanguage` | `auto` | Language to translate from, or `auto` to detect |
 | `quickLanguages` | `vi, en, ja, zh-CN` | Codes shown as one-click shortcuts in the popup. Set to `[]` to hide the row |
 | `showIconOnSelect` | `true` | Show the 🌐 marker after a selection |
+| `manualSelectionOnly` | `true` | Only mark selections you made by hand, not ones a command produced |
 | `confirmBeforeTranslate` | `true` | Require a click on the marker before sending a selection. Turn off to translate on hover |
 | `autoShowPopup` | `false` | Open the popup as soon as text is selected, without hovering |
 | `autoShowDelay` | `350` | Debounce in milliseconds before reacting to a selection change |
 | `hoverOnWord` | `false` | Translate the word under the cursor even with nothing selected |
 | `preserveLineBreaks` | `all` | `all` keeps every line, `paragraph` folds hard-wrapped lines and keeps blank lines, `off` flattens everything onto one line |
+| `renderMarkdown` | `true` | Render Markdown tables in the popup as tables |
 | `stripCommentMarkers` | `true` | Drop `//`, `/* */`, `#`, `<!-- -->` and indentation before translating |
 | `maxLength` | `1500` | Longest selection sent to the engine |
 | `showStatusBar` | `true` | Show the current language pair in the status bar |
@@ -114,6 +127,31 @@ be committed to a repository by accident.
 Google bills the official API by **source characters sent**, with the first
 500,000 characters each month free. For reference, a typical paragraph-sized
 selection is 100–200 characters.
+
+### Translating tables
+
+A selected Markdown table comes back as a table rather than as flat lines. This
+works because each line is translated as its own request, so the engine never
+sees the table as a whole and cannot restructure it — the divider row and every
+`|` come back in place.
+
+Detection happens per block, not per selection, so a document holding prose and
+a table renders both correctly in one popup. A run of lines is treated as a
+table only when Markdown itself would accept it: consecutive rows wrapped in
+`|`, with a `| --- |` divider among them. Everything else keeps its own line
+break exactly as before, which matters because Markdown reads a single newline
+as a space — prose rendered as Markdown would lose the line breaks the
+translation just preserved.
+
+Set `translateHover.renderMarkdown` to `false` to switch tables off as well.
+
+Note that `stripCommentMarkers` removes a leading `#` before the text is sent,
+so Markdown headings arrive as plain text. Turn that setting off too if you are
+translating documents rather than code.
+
+Links and raw HTML in the selection are never rendered. The popup is a trusted
+Markdown surface where a `command:` link would run a VS Code command when
+clicked, and text out of an arbitrary file must not be able to build one.
 
 ## Using an API key
 
