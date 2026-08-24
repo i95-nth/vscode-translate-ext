@@ -1,67 +1,193 @@
 # Translate Hover
 
-Bôi đen (select) đoạn text bất kỳ trong editor → hiện icon 🌐 ngay sau vùng chọn → rê chuột vào để xem bản dịch Google Translate trong popup, giống extension Google Dịch trên Chrome.
+Select any text in the editor, hover it, and read the Google Translate result in
+a popup without leaving VS Code — the same gesture as the Google Translate
+extension in Chrome.
 
-## Dùng như thế nào
+## Getting started
 
-| Thao tác | Kết quả |
+Nothing to configure. Select a piece of text and a 🌐 marker appears after it.
+Hover that marker and click **Translate** — the popup opens with the result.
+
+Translation is deliberate by design: hovering the selection never sends
+anything on its own, so a stray mouse movement cannot spend quota. The marker
+tells you how much it will cost before you commit, and text already translated
+in this session skips the confirmation because it costs nothing.
+
+| Action | Result |
 |---|---|
-| Select text rồi rê chuột vào vùng chọn | Popup dịch hiện ra |
-| `Cmd+Alt+T` (mac) / `Ctrl+Alt+T` | Mở popup dịch ngay, không cần rê chuột |
-| `Cmd+Alt+Shift+T` / `Ctrl+Alt+Shift+T` | Dịch và **thay thế** luôn đoạn đang chọn |
-| Click ngôn ngữ ở status bar (`🌐 auto → vi`) | Đổi ngôn ngữ đích |
-| Chuột phải vào vùng chọn | Menu Translate |
+| Select text, hover the 🌐 marker, click **Translate** | The translation popup opens |
+| `Cmd+Alt+T` (macOS) / `Ctrl+Alt+T` | Open the popup immediately, no hovering |
+| `Cmd+Alt+Shift+T` / `Ctrl+Alt+Shift+T` | Translate and **replace** the selection in place |
+| Click the status bar item (`🌐 auto → vi`) | Change the target language |
+| Right-click the selection | Translate commands in the context menu |
 
-Trong popup có sẵn: 🔊 nghe phát âm, Copy, Replace, và **More »** để mở translate.google.com.
+## Inside the popup
 
-## Đổi ngôn ngữ ngay trong popup
+The popup is laid out as three sections divided by rules: the language pair on
+top, the original text, then the translation.
 
-Không cần mở Settings:
+Each block carries its own small toolbar:
 
-- Click vào **tên ngôn ngữ nguồn** (trái) hoặc **đích** (phải) ngay trên đầu popup → quick pick hiện ra, chọn xong popup tự dịch lại và bung ra lại.
-- Hàng shortcut dưới bản dịch (`vi · en · ja · zh-CN`) đổi ngôn ngữ đích chỉ bằng một click. Sửa danh sách này ở `translateHover.quickLanguages`.
-- Nút ⇄ đảo chiều nguồn ↔ đích.
-- Ngôn ngữ vừa dùng được đẩy lên đầu quick pick lần sau.
-- Chọn **Detect language** ở picker nguồn để quay về `auto`; khi đang auto, popup hiển thị ngôn ngữ Google nhận ra kèm chữ `(auto)`.
+| Button | Does |
+|---|---|
+| 🔊 | Play the text through Google's text-to-speech in your browser |
+| ↗ | Open the original on translate.google.com |
+| 📋 Copy | Copy the translation to the clipboard |
+| ⇄ Replace | Replace the selected text with the translation |
 
-## Cấu hình
+Line breaks in the source are preserved: each line is translated on its own and
+rendered on its own line, so a multi-line comment keeps its shape.
 
-Tất cả nằm dưới `translateHover.*` trong Settings:
+## Changing languages without opening Settings
 
-- `targetLanguage` — mặc định `vi`
-- `sourceLanguage` — mặc định `auto`
-- `quickLanguages` — các mã ngôn ngữ hiện thành shortcut một-click trong popup (mặc định `vi, en, ja, zh-CN`; để `[]` để ẩn hàng này)
-- `showIconOnSelect` — hiện icon 🌐 sau vùng chọn (mặc định bật)
-- `autoShowPopup` — tự bung popup ngay khi select, khỏi cần rê chuột (mặc định tắt)
-- `autoShowDelay` — độ trễ debounce, ms (mặc định 350)
-- `hoverOnWord` — rê chuột lên một từ là dịch, không cần select (mặc định tắt)
-- `stripCommentMarkers` — bỏ `//`, `/* */`, `#`, `<!-- -->` trước khi dịch (mặc định bật)
-- `maxLength` — số ký tự tối đa gửi đi (mặc định 2000)
-- `apiKey` — API key Google Cloud Translation. Để trống thì dùng endpoint miễn phí.
-- `proxy` — thay `clients5.google.com` bằng host khác nếu bị chặn.
+- Click the **source** or **target** language name at the top of the popup to
+  open a picker. The popup re-translates and reopens by itself.
+- The shortcut row under the translation (`vi · en · ja · zh-CN`) switches the
+  target language in one click. Edit the list with `translateHover.quickLanguages`.
+- The ⇄ button swaps source and target.
+- Languages you picked recently move to the top of the picker next time.
+- Pick **Detect language** in the source picker to go back to `auto`. While on
+  auto, the popup shows the language Google detected, marked `(auto)`.
 
-## Về endpoint dịch
+## Commands
 
-Mặc định extension gọi `clients5.google.com/translate_a/t` — đúng endpoint mà Google Translate Chrome extension dùng. Đây là API **không chính thức**: miễn phí, không cần key, nhưng có rate limit và Google có thể đổi bất cứ lúc nào. Nếu bị `HTTP 429`, extension tự thử tiếp `translate.googleapis.com`; muốn ổn định lâu dài thì điền `translateHover.apiKey` để dùng Cloud Translation API chính thức (có tính phí).
+All of these are available from the Command Palette under `Translate:`.
 
-## Phát triển
+| Command | Purpose |
+|---|---|
+| Translate Selection | Open the popup for the current selection |
+| Replace Selection With Translation | Overwrite the selection with its translation |
+| Change Target Language / Change Source Language | Open the language picker |
+| Swap Source / Target Language | Reverse the direction |
+| Copy Last Translation | Copy the most recent result |
+| Speak Text | Play the last result as audio |
+| Open In Google Translate | Open the text on translate.google.com |
+| Set Google Cloud API Key | Store an official API key in the OS keychain |
+| Clear Google Cloud API Key | Remove the stored key and return to the free endpoint |
+| Clear Cache | Drop the in-memory translation cache |
+| Extension Options | Jump to these settings |
 
-```bash
-npm install
-npm run compile     # hoặc: npm run watch
-```
+## Settings
 
-Mở thư mục này trong VS Code rồi nhấn `F5` để bật Extension Development Host.
+Everything lives under `translateHover.*`.
 
-Đóng gói:
+| Setting | Default | What it does |
+|---|---|---|
+| `targetLanguage` | `vi` | Language to translate into |
+| `sourceLanguage` | `auto` | Language to translate from, or `auto` to detect |
+| `quickLanguages` | `vi, en, ja, zh-CN` | Codes shown as one-click shortcuts in the popup. Set to `[]` to hide the row |
+| `showIconOnSelect` | `true` | Show the 🌐 marker after a selection |
+| `confirmBeforeTranslate` | `true` | Require a click on the marker before sending a selection. Turn off to translate on hover |
+| `autoShowPopup` | `false` | Open the popup as soon as text is selected, without hovering |
+| `autoShowDelay` | `350` | Debounce in milliseconds before reacting to a selection change |
+| `hoverOnWord` | `false` | Translate the word under the cursor even with nothing selected |
+| `preserveLineBreaks` | `all` | `all` keeps every line, `paragraph` folds hard-wrapped lines and keeps blank lines, `off` flattens everything onto one line |
+| `stripCommentMarkers` | `true` | Drop `//`, `/* */`, `#`, `<!-- -->` and indentation before translating |
+| `maxLength` | `1500` | Longest selection sent to the engine |
+| `showStatusBar` | `true` | Show the current language pair in the status bar |
+| `proxy` | empty | Use a different host instead of `clients5.google.com` |
 
-```bash
-npx @vscode/vsce package
-code --install-extension translate-hover-0.0.1.vsix
-```
+### Why `maxLength` is 1500
 
-## Giới hạn đã biết
+The free endpoints carry the text inside the URL, and Google rejects anything
+past roughly 16 KB. A CJK character costs 9 bytes once URL-encoded, so Japanese
+text hits that ceiling at around 1,800 characters — well before the character
+count looks large. Selections beyond the limit report a clear message rather
+than a bare HTTP error. Raising this only makes sense with an API key set,
+because the official API sends the text in the request body instead.
 
-VS Code không cho vẽ popup HTML tùy ý tại vị trí con trỏ như Chrome extension làm. Popup ở đây là **Hover API** native của editor, render Markdown — nên không có dropdown chọn ngôn ngữ ngay trong popup (dùng status bar hoặc icon ⚙️ thay thế), và nút 🔊 mở audio TTS bằng trình duyệt ngoài chứ không phát trực tiếp trong editor.
+## Translation engines
 
-Icon 🌐 hiển thị được nhưng **không click được** — decoration của VS Code không nhận sự kiện click. Rê chuột vào là ra popup.
+**Without a key** the extension calls `clients5.google.com/translate_a/t`, the
+endpoint the Google Translate Chrome extension uses, and falls back to
+`translate.googleapis.com` if that fails. These are free and need no setup, but
+they are **unofficial**: they are rate limited, undocumented, and Google can
+change them at any time.
+
+**With a key** every request goes to the official Cloud Translation API v2
+instead, and the unofficial endpoints are never called. Run **Translate: Set
+Google Cloud API Key** to store one — it is kept in the OS keychain, not in
+`settings.json`, so Settings Sync never carries it off the machine and it cannot
+be committed to a repository by accident.
+
+Google bills the official API by **source characters sent**, with the first
+500,000 characters each month free. For reference, a typical paragraph-sized
+selection is 100–200 characters.
+
+## Using an API key
+
+### Adding a key
+
+1. In the [Google Cloud console](https://console.cloud.google.com/), pick a
+   project and enable **Cloud Translation API**. The API requires billing to be
+   enabled on the project, including for the free monthly characters.
+2. Go to **APIs & Services → Credentials → Create credentials → API key**.
+3. Restrict the new key to the Cloud Translation API. An unrestricted key works
+   against every API enabled on the project, so anyone who obtains it can spend
+   far more than translation.
+4. In VS Code, run **Translate: Set Google Cloud API Key** from the Command
+   Palette and paste the key. The input is masked.
+
+The status bar keeps showing the language pair; there is no separate indicator
+for which engine is active. To confirm the key took effect, translate something
+and watch for errors — a bad key fails loudly rather than falling back.
+
+### Where the key is stored
+
+In the operating system keychain, through the VS Code secret storage API — not
+in `settings.json`. That means Settings Sync never carries it to another
+machine, and it cannot end up in a committed `.vscode/settings.json`.
+
+The old `translateHover.apiKey` setting is deprecated. If a key is still there,
+it is moved into the keychain the next time the extension starts and then
+deleted from every settings scope it was written to. You will see a notification
+when that happens.
+
+### Removing a key
+
+Run **Translate: Clear Google Cloud API Key**. Translation returns to the free
+unofficial endpoints immediately, and the cache is cleared so nothing is served
+from the previous engine.
+
+### Capping what a key can spend
+
+The per-day character quota defaults to **unlimited**, so nothing stops usage
+once the free 500,000 characters are gone. Set a cap explicitly:
+
+**APIs & Services → Cloud Translation API → Quotas →** *Characters sent to
+general model per project per day*.
+
+A daily limit of **16,000** keeps a project under 500,000 characters even in a
+31-day month — roughly 110 paragraph-sized translations per day, shared across
+everyone using that key.
+
+Two things to plan around: the quota resets at midnight **Pacific time**, and a
+new quota can take **up to 24 hours** to take effect. Set it before handing the
+key out, not when you need it.
+
+Once the cap is reached the API answers `403 Daily Limit Exceeded`, which the
+extension shows in the popup. It does **not** fall back to the unofficial
+endpoints — with a key configured, those are never called.
+
+If several people share one key, this quota is the only thing that sees the
+combined total. Nothing on an individual machine can.
+
+## Known limits
+
+VS Code does not let an extension paint an arbitrary HTML popup at the cursor
+the way a Chrome extension can. This popup is the editor's native Hover, which
+renders Markdown and strips `style`, `class` and `data-*` attributes. That
+rules out custom backgrounds and borders, so the layout uses rules and toolbars
+instead.
+
+Two consequences worth knowing:
+
+- The 🔊 button opens audio in an external browser rather than playing it inside
+  the editor, and Google's text-to-speech endpoint accepts about 200 characters
+  per request.
+- The 🌐 marker is a decoration, and decorations do not receive click events.
+  Hover it to open its own small popup, and click the link inside that.
+
+The translation cache holds 500 entries in memory and is not written to disk, so
+it starts empty after a window reload.

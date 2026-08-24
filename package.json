@@ -2,7 +2,7 @@
   "name": "translate-hover",
   "displayName": "Translate Hover",
   "description": "Select text in any file and get a Google Translate popup right in the editor.",
-  "version": "0.0.1",
+  "version": "0.0.8",
   "publisher": "haint",
   "license": "MIT",
   "repository": {
@@ -17,6 +17,7 @@
   "engines": {
     "vscode": "^1.85.0"
   },
+  "icon": "assets/icons/translate.png",
   "categories": [
     "Other"
   ],
@@ -62,6 +63,14 @@
       {
         "command": "translateHover.openSettings",
         "title": "Translate: Extension Options"
+      },
+      {
+        "command": "translateHover.setApiKey",
+        "title": "Translate: Set Google Cloud API Key"
+      },
+      {
+        "command": "translateHover.clearApiKey",
+        "title": "Translate: Clear Google Cloud API Key"
       },
       {
         "command": "translateHover.clearCache",
@@ -127,6 +136,11 @@
           "default": true,
           "description": "Show a small translate icon right after the selected text."
         },
+        "translateHover.confirmBeforeTranslate": {
+          "type": "boolean",
+          "default": true,
+          "description": "Require a click on the 🌐 marker before a selection is sent to the translation engine. Hovering the selection alone never triggers a request. Turn this off to translate on hover, as earlier versions did."
+        },
         "translateHover.autoShowPopup": {
           "type": "boolean",
           "default": false,
@@ -144,8 +158,23 @@
         },
         "translateHover.maxLength": {
           "type": "number",
-          "default": 2000,
-          "description": "Maximum number of characters sent to the translation engine."
+          "default": 1500,
+          "markdownDescription": "Maximum number of characters sent to the translation engine. The free endpoint carries the text in the URL and rejects anything past roughly 16 KB, which a CJK character reaches after about 1,800 characters — raise this only with `#translateHover.apiKey#` set."
+        },
+        "translateHover.preserveLineBreaks": {
+          "type": "string",
+          "enum": [
+            "all",
+            "paragraph",
+            "off"
+          ],
+          "enumDescriptions": [
+            "Keep every line break: each line is translated and shown on its own line.",
+            "Only keep blank lines between paragraphs; hard-wrapped lines are folded into one sentence.",
+            "Flatten the whole selection onto a single line."
+          ],
+          "default": "all",
+          "description": "How line breaks in the selected text are handled."
         },
         "translateHover.stripCommentMarkers": {
           "type": "boolean",
@@ -160,7 +189,9 @@
         "translateHover.apiKey": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Optional Google Cloud Translation API key. When empty the free (unofficial) `translate.googleapis.com` endpoint is used."
+          "scope": "machine",
+          "markdownDeprecationMessage": "Superseded by the **Translate: Set Google Cloud API Key** command, which keeps the key in the OS keychain instead of settings.json. A value left here is moved into the keychain on the next start and then removed.",
+          "markdownDescription": "Deprecated — run **Translate: Set Google Cloud API Key** instead. With no key the free, unofficial endpoints are used (`clients5.google.com`, falling back to `translate.googleapis.com`); with one, the official Cloud Translation API v2 handles every request and the free endpoints are never called."
         },
         "translateHover.proxy": {
           "type": "string",
