@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { LANGUAGES, Language, languageName } from './languages';
 import { clearCache, isCached, translate, ttsUrl, webUrl } from './translate';
 
-const SECTION = 'translateHover';
+const SECTION = 'quickTranslate';
 
 let iconDecoration: vscode.TextEditorDecorationType;
 let loadingDecoration: vscode.TextEditorDecorationType;
@@ -36,6 +36,7 @@ let pending: string | undefined;
  */
 const MIN_SPINNER_MS = 200;
 
+
 /**
  * The key lives in the OS keychain, not in settings.json: a plain setting is
  * carried off the machine by Settings Sync, and a workspace-level one lands in
@@ -45,7 +46,7 @@ const MIN_SPINNER_MS = 200;
 const API_KEY_SECRET = `${SECTION}.apiKey`;
 
 export function activate(context: vscode.ExtensionContext): void {
-    output = vscode.window.createOutputChannel('Translate Hover');
+    output = vscode.window.createOutputChannel('Quick Translate');
     state = context.globalState;
     secrets = context.secrets;
     void migrateApiKey();
@@ -76,7 +77,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
     statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     statusBar.command = `${SECTION}.pickTargetLanguage`;
-    statusBar.tooltip = 'Translate Hover: click to change target language';
+    statusBar.tooltip = 'Quick Translate: click to change target language';
     updateStatusBar();
 
     context.subscriptions.push(
@@ -117,7 +118,7 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand(`${SECTION}.clearApiKey`, clearApiKey),
         vscode.commands.registerCommand(`${SECTION}.clearCache`, () => {
             clearCache();
-            vscode.window.showInformationMessage('Translate Hover: cache cleared.');
+            vscode.window.showInformationMessage('Quick Translate: cache cleared.');
         })
     );
 
@@ -167,7 +168,7 @@ async function migrateApiKey(): Promise<void> {
 
     output.appendLine('[apiKey] moved out of settings.json into the OS keychain');
     void vscode.window.showInformationMessage(
-        'Translate Hover: your API key was moved from settings.json into the OS keychain. ' +
+        'Quick Translate: your API key was moved from settings.json into the OS keychain. ' +
             'Use "Translate: Set Google Cloud API Key" to change it.'
     );
 }
@@ -184,13 +185,13 @@ async function setApiKey(): Promise<void> {
     }
     await secrets?.store(API_KEY_SECRET, value.trim());
     clearCache();
-    vscode.window.showInformationMessage('Translate Hover: API key saved. The official API is now in use.');
+    vscode.window.showInformationMessage('Quick Translate: API key saved. The official API is now in use.');
 }
 
 async function clearApiKey(): Promise<void> {
     await secrets?.delete(API_KEY_SECRET);
     clearCache();
-    vscode.window.showInformationMessage('Translate Hover: API key removed. Falling back to the free endpoint.');
+    vscode.window.showInformationMessage('Quick Translate: API key removed. Falling back to the free endpoint.');
 }
 
 /* ---------------------------------------------------------------- config */
@@ -228,36 +229,192 @@ function updateStatusBar(): void {
 const gestures = new Map<string, string>();
 
 function onSelectionChange(e: vscode.TextEditorSelectionChangeEvent): void {
+    if (openedByClick(e)) {
+        return;
+    }
+
     const byHand =
         e.kind === vscode.TextEditorSelectionChangeKind.Mouse ||
         e.kind === vscode.TextEditorSelectionChangeKind.Keyboard;
     if (byHand) {
         gestures.set(e.textEditor.document.uri.toString(), selectionKey(e.textEditor));
     }
-    scheduleDecoration(e.textEditor);
+
+    const dragging = trackDrag(e);
+    if (dragging) {
+        // The selection is still growing under the pointer. A marker drawn now
+        // would sit inside the range and jump on the next frame, so the drag
+        // runs with nothing on screen and the marker lands once, at the end.
+        e.textEditor.setDecorations(iconDecoration, []);
+    }
+    scheduleDecoration(e.textEditor, dragging);
+}
+
+/**
+ * Where the last mouse-driven selection change of a document was anchored, and
+ * when it arrived.
+ */
+const drags = new Map<string, { anchor: string; at: number }>();
+
+/**
+ * The longest gap allowed between two events of one drag. Anything slower is
+ * read as a fresh gesture rather than a continuation of the previous one.
+ */
+const DRAG_GAP_MS = 400;
+
+/**
+ * True while the pointer looks to be dragging out a selection.
+ *
+ * VS Code reports no mouse-up (microsoft/vscode#46974), so the button's state
+ * has to be inferred from the shape of the events: a drag is a run of Mouse
+ * changes that keep the same anchor while the active end moves, and the release
+ * is simply the moment that run stops. That makes the settle delay below the
+ * only thing standing in for the button coming up — a mid-drag pause longer
+ * than it shows the marker early, and the next movement hides it again.
+ */
+function trackDrag(e: vscode.TextEditorSelectionChangeEvent): boolean {
+    const key = e.textEditor.document.uri.toString();
+    if (e.kind !== vscode.TextEditorSelectionChangeKind.Mouse) {
+        drags.delete(key);
+        return false;
+    }
+    const { anchor } = e.textEditor.selection;
+    const at = Date.now();
+    const previous = drags.get(key);
+    drags.set(key, { anchor: `${anchor.line},${anchor.character}`, at });
+    return (
+        previous !== undefined &&
+        previous.anchor === `${anchor.line},${anchor.character}` &&
+        at - previous.at < DRAG_GAP_MS
+    );
 }
 
 function selectionKey(editor: vscode.TextEditor): string {
-    const { start, end } = editor.selection;
+    return keyOf(editor.selection);
+}
+
+function keyOf(range: vscode.Range): string {
+    const { start, end } = range;
     return `${start.line},${start.character},${end.line},${end.character}`;
+}
+
+/**
+ * Where the marker is drawn, while it is.
+ *
+ * Click mode has nothing to attach a handler to — a decoration is paint, not a
+ * widget — so a click on it has to be recognised from the selection it leaves
+ * behind, and that comparison needs the range it was last drawn for.
+ */
+let marker: { uri: string; selection: vscode.Selection } | undefined;
+
+/**
+ * Turns a click on the marker into the popup, and reports whether it did.
+ *
+ * The click itself never arrives: decorations take no input, so what shows up
+ * is only its side effect — the pointer landed past the last selected
+ * character, which drops the selection onto the position the marker occupies.
+ * The glyph is painted between two characters rather than at one, so a click on
+ * it can round to either side of the gap; both are accepted, and both are the
+ * same gesture to the eye.
+ */
+function openedByClick(e: vscode.TextEditorSelectionChangeEvent): boolean {
+    const at = marker;
+    if (!at || byPointer(config()) || e.kind !== vscode.TextEditorSelectionChangeKind.Mouse) {
+        return false;
+    }
+    const editor = e.textEditor;
+    const cursor = editor.selection.active;
+    const on =
+        at.uri === editor.document.uri.toString() &&
+        editor.selection.isEmpty &&
+        cursor.line === at.selection.end.line &&
+        cursor.character >= at.selection.end.character &&
+        cursor.character <= at.selection.end.character + 1;
+    if (!on) {
+        return false;
+    }
+
+    // The click landed past the last selected character, so it took the
+    // selection with it. Putting it back is what the rest of the flow reads,
+    // and what madeByHand has to answer for, or the marker is taken down the
+    // moment the popup goes up.
+    gestures.set(at.uri, keyOf(at.selection));
+    editor.selection = at.selection;
+
+    const cfg = config();
+    const text = readSelection(editor);
+    if (!text) {
+        return false;
+    }
+
+    if (needsApproval(text, cfg)) {
+        // The gate is the marker's own popup, and it is where the request is
+        // actually approved. In hover mode it opens by itself when the pointer
+        // arrives; here the click is what asks for it.
+        gateOpen = true;
+        void showPopup(editor);
+        return true;
+    }
+
+    // Nothing left to approve — a cached answer costs nothing, and switching
+    // the confirmation off is a standing approval — so the click goes straight
+    // through to the translation.
+    const { start, end } = at.selection;
+    const anchor: Anchor = {
+        uri: at.uri,
+        range: [start.line, start.character, end.line, end.character]
+    };
+    void vscode.commands.executeCommand(`${SECTION}.translateSelection`, anchor);
+    return true;
+}
+
+/**
+ * Set by a click on the marker, and spent by the next pass that draws it.
+ *
+ * Click mode leaves the marker bare so that resting the pointer on it opens
+ * nothing; the gate is attached for one drawing only, the one that answers the
+ * click, and the hover shown straight after it picks it up from there.
+ */
+let gateOpen = false;
+
+/** True while the popup answers the pointer resting on the marker, not a click. */
+function byPointer(cfg: vscode.WorkspaceConfiguration): boolean {
+    return cfg.get<string>('popupTrigger', 'click') !== 'click';
 }
 
 function madeByHand(editor: vscode.TextEditor): boolean {
     return gestures.get(editor.document.uri.toString()) === selectionKey(editor);
 }
 
-function scheduleDecoration(editor = vscode.window.activeTextEditor): void {
+function scheduleDecoration(editor = vscode.window.activeTextEditor, dragging = false): void {
     if (selectionTimer) {
         clearTimeout(selectionTimer);
     }
     if (!editor) {
         return;
     }
-    const delay = config().get<number>('autoShowDelay', 350)!;
+    const cfg = config();
+    // A drag is waited out with its own delay: it is the stand-in for the mouse
+    // button coming up, so it answers to how long a hand pauses mid-selection,
+    // not to how long a settled selection should sit before being marked.
+    const delay = dragging
+        ? cfg.get<number>('dragSettleDelay', 250)!
+        : cfg.get<number>('autoShowDelay', 350)!;
     selectionTimer = setTimeout(() => renderDecoration(editor), Math.max(0, delay));
 }
 
 function renderDecoration(editor: vscode.TextEditor): void {
+    // A request in flight owns the marker's cell: whileLoading has the hourglass
+    // standing there, and every exit below clears decorations on its way out —
+    // including the one taken when showTextDocument has swapped the editor
+    // object under a debounce scheduled before it. Any of them would strip the
+    // hourglass mid-request. whileLoading takes it down itself when the work
+    // settles, and the marker is redrawn on the pass after that.
+    if (pending !== undefined) {
+        marker = undefined;
+        return;
+    }
+
     if (editor !== vscode.window.activeTextEditor) {
         // Returning without clearing would strand the marker here, and with it
         // a gate still offering a selection this editor may no longer have.
@@ -269,6 +426,7 @@ function renderDecoration(editor: vscode.TextEditor): void {
     const text = selection.isEmpty ? '' : readSelection(editor);
 
     if (!cfg.get<boolean>('showIconOnSelect', true) || !text) {
+        marker = undefined;
         editor.setDecorations(iconDecoration, []);
         return;
     }
@@ -278,17 +436,26 @@ function renderDecoration(editor: vscode.TextEditor): void {
         return;
     }
 
-    const auto = cfg.get<boolean>('autoShowPopup', false);
+    // An automatic popup is a third way in, and it opens by itself; there is
+    // nothing for it to do where the popup answers clicks only.
+    const auto = byPointer(cfg) && cfg.get<boolean>('autoShowPopup', false);
     if (auto) {
         // Opting into an automatic popup is opting into the request behind it.
         armed = text;
     }
 
     // The icon is injected after the last selected character. Its own hover is
-    // the gate, so it is only attached while the text still needs approving.
+    // the gate, so it is only attached while the text still needs approving,
+    // and in click mode only for the one pass that answers a click on it.
+    const asked = gateOpen;
+    gateOpen = false;
+
     const range = new vscode.Range(selection.end, selection.end);
+    marker = { uri: editor.document.uri.toString(), selection };
     editor.setDecorations(iconDecoration, [
-        needsApproval(text, cfg) ? { range, hoverMessage: gate(text, editor) } : { range }
+        (byPointer(cfg) || asked) && needsApproval(text, cfg)
+            ? { range, hoverMessage: gate(text, editor) }
+            : { range }
     ]);
 
     if (auto) {
@@ -297,6 +464,7 @@ function renderDecoration(editor: vscode.TextEditor): void {
 }
 
 function clearMarkers(editor: vscode.TextEditor): void {
+    marker = undefined;
     editor.setDecorations(iconDecoration, []);
     editor.setDecorations(loadingDecoration, []);
 }
@@ -395,6 +563,14 @@ async function provideHover(
     const raw = document.getText(range);
     const text = prepare(raw, cfg);
     if (!text) {
+        return undefined;
+    }
+
+    // Click mode: the popup is the answer to a click on the marker, never to
+    // the pointer coming to rest. The click arms the text on its way here, so
+    // that — and the spinner for a request already running — is all this
+    // serves; hoverOnWord has nothing to open through.
+    if (!byPointer(cfg) && armed !== text && pending !== text) {
         return undefined;
     }
 
@@ -622,8 +798,8 @@ async function translateSelectionCommand(anchor?: Anchor): Promise<void> {
     if (editor.selection.isEmpty) {
         vscode.window.showInformationMessage(
             anchor
-                ? 'Translate Hover: that selection is no longer there — select the text again.'
-                : 'Translate Hover: select some text first.'
+                ? 'Quick Translate: that selection is no longer there — select the text again.'
+                : 'Quick Translate: select some text first.'
         );
         return;
     }
@@ -641,7 +817,7 @@ async function translateSelectionCommand(anchor?: Anchor): Promise<void> {
 async function replaceSelectionCommand(): Promise<void> {
     const editor = vscode.window.activeTextEditor;
     if (!editor || editor.selection.isEmpty) {
-        vscode.window.showInformationMessage('Translate Hover: select some text first.');
+        vscode.window.showInformationMessage('Quick Translate: select some text first.');
         return;
     }
 
@@ -669,13 +845,13 @@ async function replaceSelectionCommand(): Promise<void> {
         );
         await editor.edit(builder => builder.replace(selection, result.text));
     } catch (err) {
-        vscode.window.showErrorMessage(`Translate Hover: ${err instanceof Error ? err.message : String(err)}`);
+        vscode.window.showErrorMessage(`Quick Translate: ${err instanceof Error ? err.message : String(err)}`);
     }
 }
 
 async function copyLastResult(): Promise<void> {
     if (!lastResult) {
-        vscode.window.showInformationMessage('Translate Hover: nothing translated yet.');
+        vscode.window.showInformationMessage('Quick Translate: nothing translated yet.');
         return;
     }
     await vscode.env.clipboard.writeText(lastResult.translated);
@@ -810,26 +986,44 @@ async function reopenPopup(): Promise<void> {
             to: cfg.get<string>('targetLanguage', 'vi')!
         });
 
-    // Nothing to wait for when the answer is already held: go straight to it
-    // rather than flashing a spinner nobody needed.
-    let shownAt: number | undefined;
-    if (!warm) {
-        pending = text;
-        await showPopup(editor);
-        // Timed from here, not from the click: showPopup itself takes a moment,
-        // and what matters is how long the spinner is actually on screen.
-        shownAt = Date.now();
-    }
-
-    // Fetch up front so the popup below paints the finished translation
-    // instead of asking provideHover to wait with the widget already open.
-    pending = undefined;
-    await whileLoading(editor, () =>
+    // The request goes out first and the popup waits on it, so that the popup
+    // paints the finished translation instead of asking provideHover to wait
+    // with the widget already open.
+    pending = text || undefined;
+    const fetching = whileLoading(editor, () =>
         vscode.window.withProgress(
             { location: vscode.ProgressLocation.Window, title: 'Translating…' },
             () => prefetch(editor)
         )
     );
+
+    // Two ways to reach the answer without a spinner: it is already held, or it
+    // arrives before the spinner would have earned its place. Both open one
+    // popup and leave it up, which is the whole point of racing the request
+    // rather than announcing it.
+    let shownAt: number | undefined;
+    if (!warm) {
+        // The spinner is a second popup rather than a state of the first: the
+        // hover cannot be updated in place, so showing progress means opening
+        // the widget, tearing it down and opening it again around the answer.
+        // Giving the request a head start lets everything that beats it open
+        // once, with the translation already in it. At 0 the race is lost
+        // before it starts and every request gets its spinner.
+        const head = Math.max(0, cfg.get<number>('spinnerAfterDelay', 0)!);
+        const beatTheSpinner = await Promise.race([
+            fetching.then(() => true),
+            delay(head).then(() => false)
+        ]);
+        if (!beatTheSpinner) {
+            await showPopup(editor);
+            // Timed from here, not from the click: showPopup itself takes a
+            // moment, and what matters is how long it is actually on screen.
+            shownAt = Date.now();
+        }
+    }
+
+    await fetching;
+    pending = undefined;
 
     if (shownAt !== undefined) {
         const remaining = MIN_SPINNER_MS - (Date.now() - shownAt);

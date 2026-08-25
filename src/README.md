@@ -1,6 +1,6 @@
 # Development
 
-Notes for working on Translate Hover. User-facing documentation lives in the
+Notes for working on Quick Translate. User-facing documentation lives in the
 [root README](../README.md).
 
 ## Setup
@@ -17,7 +17,7 @@ Development Host with the extension loaded.
 
 ```bash
 npx @vscode/vsce package
-code --install-extension translate-hover-<version>.vsix --force
+code --install-extension quick-translate-<version>.vsix --force
 ```
 
 **Bump `version` in `package.json` before packaging.** `code --install-extension`
@@ -81,7 +81,7 @@ interaction has to come from the hover popup's command links.
 
 ## The API key
 
-Stored in `context.secrets` (the OS keychain) under `translateHover.apiKey`, not
+Stored in `context.secrets` (the OS keychain) under `quickTranslate.apiKey`, not
 in settings. The old plaintext setting is still read once by `migrateApiKey()`,
 which copies it into the keychain and then deletes it from every configuration
 scope it was written to.

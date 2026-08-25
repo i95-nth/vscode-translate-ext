@@ -1,8 +1,8 @@
 {
-  "name": "translate-hover",
-  "displayName": "Translate Hover",
+  "name": "quick-translate",
+  "displayName": "Quick Translate",
   "description": "Select text in any file and get a Google Translate popup right in the editor.",
-  "version": "0.0.15",
+  "version": "0.0.23",
   "publisher": "haint",
   "license": "MIT",
   "repository": {
@@ -28,64 +28,64 @@
   "contributes": {
     "commands": [
       {
-        "command": "translateHover.translateSelection",
+        "command": "quickTranslate.translateSelection",
         "title": "Translate: Translate Selection",
         "icon": "$(globe)"
       },
       {
-        "command": "translateHover.pickTargetLanguage",
+        "command": "quickTranslate.pickTargetLanguage",
         "title": "Translate: Change Target Language"
       },
       {
-        "command": "translateHover.pickSourceLanguage",
+        "command": "quickTranslate.pickSourceLanguage",
         "title": "Translate: Change Source Language"
       },
       {
-        "command": "translateHover.swapLanguages",
+        "command": "quickTranslate.swapLanguages",
         "title": "Translate: Swap Source / Target Language"
       },
       {
-        "command": "translateHover.copyLastResult",
+        "command": "quickTranslate.copyLastResult",
         "title": "Translate: Copy Last Translation"
       },
       {
-        "command": "translateHover.replaceSelection",
+        "command": "quickTranslate.replaceSelection",
         "title": "Translate: Replace Selection With Translation"
       },
       {
-        "command": "translateHover.speak",
+        "command": "quickTranslate.speak",
         "title": "Translate: Speak Text"
       },
       {
-        "command": "translateHover.openInBrowser",
+        "command": "quickTranslate.openInBrowser",
         "title": "Translate: Open In Google Translate"
       },
       {
-        "command": "translateHover.openSettings",
+        "command": "quickTranslate.openSettings",
         "title": "Translate: Extension Options"
       },
       {
-        "command": "translateHover.setApiKey",
+        "command": "quickTranslate.setApiKey",
         "title": "Translate: Set Google Cloud API Key"
       },
       {
-        "command": "translateHover.clearApiKey",
+        "command": "quickTranslate.clearApiKey",
         "title": "Translate: Clear Google Cloud API Key"
       },
       {
-        "command": "translateHover.clearCache",
+        "command": "quickTranslate.clearCache",
         "title": "Translate: Clear Cache"
       }
     ],
     "keybindings": [
       {
-        "command": "translateHover.translateSelection",
+        "command": "quickTranslate.translateSelection",
         "key": "ctrl+alt+t",
         "mac": "cmd+alt+t",
         "when": "editorHasSelection"
       },
       {
-        "command": "translateHover.replaceSelection",
+        "command": "quickTranslate.replaceSelection",
         "key": "ctrl+alt+shift+t",
         "mac": "cmd+alt+shift+t",
         "when": "editorHasSelection && !editorReadonly"
@@ -94,31 +94,31 @@
     "menus": {
       "editor/context": [
         {
-          "command": "translateHover.translateSelection",
+          "command": "quickTranslate.translateSelection",
           "when": "editorHasSelection",
           "group": "1_modification@10"
         },
         {
-          "command": "translateHover.replaceSelection",
+          "command": "quickTranslate.replaceSelection",
           "when": "editorHasSelection && !editorReadonly",
           "group": "1_modification@11"
         }
       ]
     },
     "configuration": {
-      "title": "Translate Hover",
+      "title": "Quick Translate",
       "properties": {
-        "translateHover.targetLanguage": {
+        "quickTranslate.targetLanguage": {
           "type": "string",
           "default": "vi",
           "description": "Target language code (e.g. vi, en, ja, zh-CN)."
         },
-        "translateHover.sourceLanguage": {
+        "quickTranslate.sourceLanguage": {
           "type": "string",
           "default": "auto",
           "description": "Source language code, or 'auto' to detect."
         },
-        "translateHover.quickLanguages": {
+        "quickTranslate.quickLanguages": {
           "type": "array",
           "items": {
             "type": "string"
@@ -131,42 +131,65 @@
           ],
           "description": "Language codes shown as one-click shortcuts inside the popup. Set to [] to hide the row."
         },
-        "translateHover.showIconOnSelect": {
+        "quickTranslate.popupTrigger": {
+          "type": "string",
+          "enum": [
+            "hover",
+            "click"
+          ],
+          "enumDescriptions": [
+            "Rest the pointer on the marker (or on the selection) to open the popup.",
+            "Open the popup only when the marker is clicked. Nothing opens on hover, so hoverOnWord and autoShowPopup do nothing in this mode."
+          ],
+          "default": "click",
+          "description": "What opens the translation popup."
+        },
+        "quickTranslate.showIconOnSelect": {
           "type": "boolean",
           "default": true,
           "description": "Show a small translate icon right after the selected text."
         },
-        "translateHover.manualSelectionOnly": {
+        "quickTranslate.manualSelectionOnly": {
           "type": "boolean",
           "default": true,
           "description": "Only show the 🌐 marker for selections made with the mouse or the keyboard. Selections a command produced — stepping through Find matches, Select All, Expand Selection — leave no marker. The Translate Selection command and its keybinding still work on any selection."
         },
-        "translateHover.confirmBeforeTranslate": {
+        "quickTranslate.confirmBeforeTranslate": {
           "type": "boolean",
           "default": true,
           "description": "Require a click on the 🌐 marker before a selection is sent to the translation engine. Hovering the selection alone never triggers a request. Turn this off to translate on hover, as earlier versions did."
         },
-        "translateHover.autoShowPopup": {
+        "quickTranslate.autoShowPopup": {
           "type": "boolean",
           "default": false,
           "description": "Automatically open the translation popup as soon as text is selected (no hover needed)."
         },
-        "translateHover.autoShowDelay": {
+        "quickTranslate.autoShowDelay": {
           "type": "number",
           "default": 350,
           "description": "Delay in ms before reacting to a selection change."
         },
-        "translateHover.hoverOnWord": {
+        "quickTranslate.dragSettleDelay": {
+          "type": "number",
+          "default": 250,
+          "description": "Delay in ms before reacting once a mouse drag stops. The icon stays hidden while the selection is being dragged out, so this is roughly how long after releasing the mouse it appears."
+        },
+        "quickTranslate.spinnerAfterDelay": {
+          "type": "number",
+          "default": 0,
+          "description": "Head start in ms a request gets before a spinner popup is opened for it. At 0 every request gets one. A request that finishes first opens a single popup with the translation, which avoids the spinner being replaced a moment later. Set to 0 to always show the spinner, or to a large number to never show it — the hourglass marker and the status bar report progress either way."
+        },
+        "quickTranslate.hoverOnWord": {
           "type": "boolean",
           "default": false,
           "description": "Also translate the word under the cursor when nothing is selected."
         },
-        "translateHover.maxLength": {
+        "quickTranslate.maxLength": {
           "type": "number",
           "default": 1500,
-          "markdownDescription": "Maximum number of characters sent to the translation engine. The free endpoint carries the text in the URL and rejects anything past roughly 16 KB, which a CJK character reaches after about 1,800 characters — raise this only with `#translateHover.apiKey#` set."
+          "markdownDescription": "Maximum number of characters sent to the translation engine. The free endpoint carries the text in the URL and rejects anything past roughly 16 KB, which a CJK character reaches after about 1,800 characters — raise this only with `#quickTranslate.apiKey#` set."
         },
-        "translateHover.preserveLineBreaks": {
+        "quickTranslate.preserveLineBreaks": {
           "type": "string",
           "enum": [
             "all",
@@ -181,29 +204,29 @@
           "default": "all",
           "description": "How line breaks in the selected text are handled."
         },
-        "translateHover.renderMarkdown": {
+        "quickTranslate.renderMarkdown": {
           "type": "boolean",
           "default": true,
           "markdownDescription": "Render Markdown tables in the popup as tables. Only blocks that Markdown would accept as a table — consecutive `|` rows carrying a `| --- |` divider — are treated this way; every other line keeps its own line break as before."
         },
-        "translateHover.stripCommentMarkers": {
+        "quickTranslate.stripCommentMarkers": {
           "type": "boolean",
           "default": true,
           "description": "Strip //, /*, *, # and leading indentation from the selected text before translating."
         },
-        "translateHover.showStatusBar": {
+        "quickTranslate.showStatusBar": {
           "type": "boolean",
           "default": true,
           "description": "Show the current language pair in the status bar."
         },
-        "translateHover.apiKey": {
+        "quickTranslate.apiKey": {
           "type": "string",
           "default": "",
           "scope": "machine",
           "markdownDeprecationMessage": "Superseded by the **Translate: Set Google Cloud API Key** command, which keeps the key in the OS keychain instead of settings.json. A value left here is moved into the keychain on the next start and then removed.",
           "markdownDescription": "Deprecated — run **Translate: Set Google Cloud API Key** instead. With no key the free, unofficial endpoints are used (`clients5.google.com`, falling back to `translate.googleapis.com`); with one, the official Cloud Translation API v2 handles every request and the free endpoints are never called."
         },
-        "translateHover.proxy": {
+        "quickTranslate.proxy": {
           "type": "string",
           "default": "",
           "description": "Optional host to use instead of clients5.google.com (e.g. a mirror)."

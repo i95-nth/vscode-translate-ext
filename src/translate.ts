@@ -42,7 +42,7 @@ function guardUrlLength(url: string): void {
     if (url.length > MAX_URL_BYTES) {
         throw new Error(
             'Selection is too long for the free Google endpoint. ' +
-                'Lower translateHover.maxLength, or set translateHover.apiKey to use the official API.'
+                'Lower quickTranslate.maxLength, or set quickTranslate.apiKey to use the official API.'
         );
     }
 }
@@ -258,7 +258,7 @@ async function fetchWithTimeout(url: string, init?: RequestInit, ms = 10000): Pr
             ...init,
             signal: controller.signal,
             headers: {
-                'User-Agent': 'Mozilla/5.0 (compatible; vscode-translate-hover)',
+                'User-Agent': 'Mozilla/5.0 (compatible; vscode-quick-translate)',
                 ...(init?.headers as Record<string, string> | undefined)
             }
         });

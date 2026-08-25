@@ -1,34 +1,47 @@
-# Translate Hover
+# Quick Translate
 
-Select any text in the editor, hover it, and read the Google Translate result in
-a popup without leaving VS Code — the same gesture as the Google Translate
-extension in Chrome.
+Select any text in the editor, click the marker that appears, and read the
+Google Translate result in a popup without leaving VS Code — the same gesture as
+the Google Translate extension in Chrome.
 
 ## Getting started
 
 Nothing to configure. Select a piece of text and a 🌐 marker appears after it.
-Hover that marker and click **Translate** — the popup opens with the result.
+Click that marker and a small popup asks what it is about to translate; click
+**Translate** in it and the result opens. The marker waits for the mouse button
+to come up, so it never chases the pointer while you are still dragging out the
+selection.
 
-While the request is out the popup opens straight away with a spinner, the
-marker turns into ⏳, and a `Translating…` indicator appears in the status bar.
-The spinner always stays up for a moment even when the answer arrives sooner,
-so it reads as progress rather than as a flicker. Text already translated in
-this session skips all of that and opens complete.
+Text already translated in this session skips the question — it costs nothing
+to answer again, so one click on the marker opens the result.
+
+Prefer the Chrome behaviour of opening on hover? That is one setting away —
+see [Click or hover](#click-or-hover).
+
+While the request is out the popup carries a spinner, the marker turns into ⏳,
+and a `Translating…` indicator appears in the status bar. The spinner always
+stays up for a moment even when the answer arrives sooner, so it reads as
+progress rather than as a flicker.
+
+A hover cannot be updated in place, so that spinner is a popup of its own that
+has to be torn down and reopened around the answer. On a fast connection the
+two can read as a flash. `spinnerAfterDelay` is the head start a request gets
+before the spinner is opened at all: raise it and anything that finishes first
+opens once, with the translation already in it.
 
 The marker only follows selections you made with the mouse or the keyboard.
 Stepping through Find matches re-selects on every hit, and marking each one
 would be noise — those selections are left alone. `Cmd+Alt+T` still translates
 whatever is selected, however it got selected.
 
-Translation is deliberate by design: hovering the selection never sends
-anything on its own, so a stray mouse movement cannot spend quota. The marker
-tells you how much it will cost before you commit, and text already translated
-in this session skips the confirmation because it costs nothing.
+Translation is deliberate by design: nothing is sent until you click, so a
+stray mouse movement cannot spend quota. Text already translated in this
+session never reaches the network again — it opens straight from the cache.
 
 | Action | Result |
 |---|---|
-| Select text, hover the 🌐 marker, click **Translate** | The translation popup opens |
-| `Cmd+Alt+T` (macOS) / `Ctrl+Alt+T` | Open the popup immediately, no hovering |
+| Select text, click the 🌐 marker, click **Translate** | The translation popup opens |
+| `Cmd+Alt+T` (macOS) / `Ctrl+Alt+T` | Open the popup immediately, without the marker |
 | `Cmd+Alt+Shift+T` / `Ctrl+Alt+Shift+T` | Translate and **replace** the selection in place |
 | Click the status bar item (`🌐 auto → vi`) | Change the target language |
 | Right-click the selection | Translate commands in the context menu |
@@ -50,12 +63,55 @@ Each block carries its own small toolbar:
 Line breaks in the source are preserved: each line is translated on its own and
 rendered on its own line, so a multi-line comment keeps its shape.
 
+## Click or hover
+
+`quickTranslate.popupTrigger` decides what opens the popup. It ships as
+`click`; set it to `hover` for the Chrome-style gesture.
+
+Through the UI: **Cmd+,** (**Ctrl+,** on Windows/Linux) → search
+`popupTrigger` → pick from the dropdown. The palette command
+`Translate: Extension Options` jumps straight to this extension's settings.
+
+Or in `settings.json`:
+
+```jsonc
+{
+  // Point at the marker instead of clicking it
+  "quickTranslate.popupTrigger": "hover"
+}
+```
+
+Both modes run the same two steps — the marker's own popup asks first, the
+translation opens second. They differ only in what brings up the first one.
+
+| | `click` (default) | `hover` |
+|---|---|---|
+| Opens the confirmation popup | Clicking the 🌐 marker | Resting the pointer on the marker |
+| Pointing at the marker | Does nothing | Opens the confirmation popup |
+| `confirmBeforeTranslate` | Turning it off makes one click on the marker open the translation | Turning it off translates on hover, with no confirmation |
+| `hoverOnWord` | Not used | Translates the word under the pointer |
+| `autoShowPopup` | Not used | Opens the popup as soon as text is selected |
+
+The two settings marked *Not used* are both ways of opening a popup by pointing
+at something, which is exactly what `click` mode turns off. They stay in place
+and take effect again the moment you switch back to `hover`.
+
+Two more settings tune the timing, in both modes:
+
+- `autoShowDelay` (`350`) — how long after a selection settles the marker
+  appears.
+- `dragSettleDelay` (`250`) — the same, but for a selection dragged with the
+  mouse. VS Code gives extensions no mouse-up event, so a drag is recognised by
+  its shape and the release is read as the moment the drag stops moving. Raise
+  this if the marker shows up while you are still dragging; lower it if it
+  feels slow to appear after you let go.
+
 ## Changing languages without opening Settings
 
 - Click the **source** or **target** language name at the top of the popup to
   open a picker. The popup re-translates and reopens by itself.
 - The shortcut row under the translation (`vi · en · ja · zh-CN`) switches the
-  target language in one click. Edit the list with `translateHover.quickLanguages`.
+  target language in one click. Edit the list with `quickTranslate.quickLanguages`.
 - The ⇄ button swaps source and target.
 - Languages you picked recently move to the top of the picker next time.
 - Pick **Detect language** in the source picker to go back to `auto`. While on
@@ -81,19 +137,22 @@ All of these are available from the Command Palette under `Translate:`.
 
 ## Settings
 
-Everything lives under `translateHover.*`.
+Everything lives under `quickTranslate.*`.
 
 | Setting | Default | What it does |
 |---|---|---|
 | `targetLanguage` | `vi` | Language to translate into |
 | `sourceLanguage` | `auto` | Language to translate from, or `auto` to detect |
 | `quickLanguages` | `vi, en, ja, zh-CN` | Codes shown as one-click shortcuts in the popup. Set to `[]` to hide the row |
+| `popupTrigger` | `click` | `click` opens the popup only when the 🌐 marker is clicked; `hover` opens it when you point at the marker. See [Click or hover](#click-or-hover) |
 | `showIconOnSelect` | `true` | Show the 🌐 marker after a selection |
 | `manualSelectionOnly` | `true` | Only mark selections you made by hand, not ones a command produced |
-| `confirmBeforeTranslate` | `true` | Require a click on the marker before sending a selection. Turn off to translate on hover |
-| `autoShowPopup` | `false` | Open the popup as soon as text is selected, without hovering |
+| `confirmBeforeTranslate` | `true` | Ask before sending a selection, through the marker's own popup. Turn off to translate on the first click (or on hover, in `hover` mode) |
+| `autoShowPopup` | `false` | Open the popup as soon as text is selected, without hovering. Only used when `popupTrigger` is `hover` |
 | `autoShowDelay` | `350` | Debounce in milliseconds before reacting to a selection change |
-| `hoverOnWord` | `false` | Translate the word under the cursor even with nothing selected |
+| `spinnerAfterDelay` | `0` | Head start in milliseconds a request gets before a spinner popup opens for it. `0` always shows the spinner; raise it and a request that finishes first opens one popup with the translation instead |
+| `dragSettleDelay` | `250` | Milliseconds of stillness before the marker appears at the end of a mouse drag. The marker stays hidden for as long as the selection is being dragged out, so this is roughly the pause between releasing the mouse and seeing it |
+| `hoverOnWord` | `false` | Translate the word under the cursor even with nothing selected. Only used when `popupTrigger` is `hover` |
 | `preserveLineBreaks` | `all` | `all` keeps every line, `paragraph` folds hard-wrapped lines and keeps blank lines, `off` flattens everything onto one line |
 | `renderMarkdown` | `true` | Render Markdown tables in the popup as tables |
 | `stripCommentMarkers` | `true` | Drop `//`, `/* */`, `#`, `<!-- -->` and indentation before translating |
@@ -143,7 +202,7 @@ break exactly as before, which matters because Markdown reads a single newline
 as a space — prose rendered as Markdown would lose the line breaks the
 translation just preserved.
 
-Set `translateHover.renderMarkdown` to `false` to switch tables off as well.
+Set `quickTranslate.renderMarkdown` to `false` to switch tables off as well.
 
 Note that `stripCommentMarkers` removes a leading `#` before the text is sent,
 so Markdown headings arrive as plain text. Turn that setting off too if you are
@@ -177,7 +236,7 @@ In the operating system keychain, through the VS Code secret storage API — not
 in `settings.json`. That means Settings Sync never carries it to another
 machine, and it cannot end up in a committed `.vscode/settings.json`.
 
-The old `translateHover.apiKey` setting is deprecated. If a key is still there,
+The old `quickTranslate.apiKey` setting is deprecated. If a key is still there,
 it is moved into the keychain the next time the extension starts and then
 deleted from every settings scope it was written to. You will see a notification
 when that happens.
@@ -224,8 +283,11 @@ Two consequences worth knowing:
 - The 🔊 button opens audio in an external browser rather than playing it inside
   the editor, and Google's text-to-speech endpoint accepts about 200 characters
   per request.
-- The 🌐 marker is a decoration, and decorations do not receive click events.
-  Hover it to open its own small popup, and click the link inside that.
+- The 🌐 marker is a decoration, and decorations receive no click events. In
+  `click` mode the click is inferred from what it leaves behind — the caret
+  landing on the spot the marker occupies — so clicking just inside the end of
+  the selection opens the popup too. In `hover` mode the marker instead carries
+  its own small popup, whose link is a real click target.
 
 The translation cache holds 500 entries in memory and is not written to disk, so
 it starts empty after a window reload.
